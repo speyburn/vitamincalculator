@@ -8,7 +8,8 @@
 // 1. Jokaiksella vitamiinilla voisi olla painoarvo. Kun scoreja lasketaan niin score kerrotaan vitamiinin painoarvolla ja lisÃ¤tÃ¤Ã¤n
 //	totaaliscoreen. NÃ¤in ollen scoreCard jossa on suurimman painoarvon vitamiinit osunut kohdalleen saa eniten pisteitÃ¤.
 
-var jf = require('jsonfile')
+var jf = require('jsonfile');
+var _ = require('underscore');
 
 //	In this case dosage is "1" someting. 1g / 1mg / 1ug etc.
 var dosage = 1;
@@ -18,6 +19,10 @@ var TESTRUNS = 100;
 
 //	Step up / down the dosage in this interval
 var STEP_INTERVAL = dosage / TESTRUNS;
+
+//	Score results better when dosage amount is closer to the center of the dosage scale
+//	Lower is better. TODO: should take priority number in account
+var PRIORIZE_MIDDLE = true;
 
 //	User input data for target values
 var vitaminLimits = [
@@ -47,19 +52,23 @@ var vitaminLimits = [
 var dosageAmounts = [
 	{
 		label: 'Vitamin A',
-		amount: 400
+		amount: 400,
+		priority: 0.9
 	},
 	{
 		label: 'Vitamin B',
-		amount: 4000
+		amount: 4000,
+		priority: 1
 	},
 	{
 		label: 'Vitamin C',
-		amount: 3
+		amount: 3,
+		priority: 1
 	},
 	{
 		label: 'Vitamin D',
-		amount: 120
+		amount: 120,
+		priority: 1
 	}
 ]
 
@@ -87,6 +96,7 @@ for(var i = 0; i < TESTRUNS; i++){
 	scoreCard.run = i;
 	scoreCard.testDosage = testDosage;
 	scoreCard.score = 0;
+	scoreCard.accuracyScore = 0;
 	scoreCard.results = [];
 
 	dosageAmounts.forEach(function(row, i) {
@@ -104,7 +114,14 @@ for(var i = 0; i < TESTRUNS; i++){
 		if(amountInThisInterval > vitaminLimitUnit.lowLimit && amountInThisInterval < vitaminLimitUnit.highLimit){
 
 			//	Incement score so that the best suitable amount is easy to pick (biggest score = most values are between limits)
-			scoreCard.score++;
+			scoreCard.score = scoreCard.score + (1 * row.priority);
+
+			if(PRIORIZE_MIDDLE) {
+				//	Take the absolute number of the differences between low - mid and mid - high. 
+				//	When that number is smaller it means that the dosage is closer to the center of the dosagescale
+				scoreCard.accuracyScore += Math.abs((amountInThisInterval - vitaminLimitUnit.lowLimit) - (vitaminLimitUnit.highLimit - amountInThisInterval));
+
+			}
 
 			result.label = row.label;
 			result.amount = amountInThisInterval;
@@ -123,15 +140,33 @@ for(var i = 0; i < TESTRUNS; i++){
 	testDosage = testDosage + STEP_INTERVAL;
 }
 
-passed.test.sort(function(a, b) {
-	return b.score - a.score;
-});
+// passed.test.sort(function(a, b) {
+// 	return b.score - a.score;
+// });
 
-passed.limits = vitaminLimits;
+report = {};
+report.test = [];
+
+//	Group tests by score, take the first group and order it by secondaryscore
+//	TODO: order all groups by secondaryscore after the initial sorting
+passed.test = _.groupBy(passed.test, 'score');
+
+for(key in passed.test){
+
+	passed.test[key].sort(function(a, b) {
+		return b.accuracyScore - a.accuracyScore;
+	});
+
+	report.test = report.test.concat(passed.test[key]);
+}
+
+report.test.reverse();
+
+report.limits = vitaminLimits;
 
 var file = 'test-result.json';
 
-jf.writeFile(file, passed, function(err) {
+jf.writeFile(file, report, function(err) {
   console.log(err)
 })
 
